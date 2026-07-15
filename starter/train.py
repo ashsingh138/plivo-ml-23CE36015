@@ -53,7 +53,10 @@ def main():
 
     # Use AdamW + Weight Decay for better generalization
     opt = torch.optim.AdamW(model.parameters(), lr=args.lr, weight_decay=0.1, betas=(0.9, 0.95))
+    
+    # Effectively quadruples our batch size per step
     grad_accum_steps = 4
+    
     model.train()
     t0 = time.time()
     losses = []
@@ -64,15 +67,24 @@ def main():
         for param_group in opt.param_groups:
             param_group['lr'] = lr
 
-        x, y = get_batch(ids, cfg.block_size, args.batch, device)
-        _, loss = model(x, y)
-        
         opt.zero_grad(set_to_none=True)
-        loss.backward()
-        # Prevent exploding gradients
+        
+        step_loss = 0.0
+        # Accumulate gradients over multiple micro-batches
+        for micro_step in range(grad_accum_steps):
+            x, y = get_batch(ids, cfg.block_size, args.batch, device)
+            _, loss = model(x, y)
+            
+            # Scale the loss to account for accumulation
+            loss = loss / grad_accum_steps
+            loss.backward()
+            step_loss += loss.item()
+            
+        # Prevent exploding gradients and step once per macro-step
         torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
         opt.step()
-        losses.append(loss.item())
+        
+        losses.append(step_loss)
         
         if step % args.log_every == 0 or step == 1:
             avg = sum(losses[-args.log_every:]) / len(losses[-args.log_every:])

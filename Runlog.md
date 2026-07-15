@@ -1,0 +1,8 @@
+# Training Run Log
+
+| Run | Hypothesis | Changes Made | Dev BPB Before | Dev BPB After | Conclusion |
+|-----|------------|--------------|----------------|---------------|------------|
+| 1 | The starter script is mediocre; establishing baseline. | None (Default settings). | N/A | 2.3718 | Very slow convergence. Fixed LR means it gets stuck early on, and the byte tokenizer struggles heavily with Hindi characters. |
+| 2 | A custom BPE tokenizer and proper optimizer will compress data and stabilize learning. | Added Custom BPE Tokenizer (768 vocab), AdamW, Cosine Decay LR Scheduler (10% warmup). | 2.3718 | 2.0671 | Massive stability gain. `tokens_in_eval` dropped from ~159k to ~66k. BPE successfully compressed the Devanagari bytes, doubling effective context. |
+| 3 | Tying embedding weights frees up parameter budget for a wider model, and gradient accumulation will increase throughput. | Set `tie_weights = True`, widened `n_embd` to 192, swapped to RMSNorm. Tried `grad_accum_steps=4`. | 2.0671 | N/A (Aborted) | FLOPs were too high. Gradient accumulation was too slow for the 120-minute CPU speedrun limit. Had to abort to save time. |
+| 4 | We need maximum CPU utilization and a higher learning rate to compensate for smaller batches without accumulation. | Added `torch.set_num_threads`, reverted to `batch=8`, `grad_accum=1`, increased LR to `2e-3`. | 2.0671 | 1.8138 | Perfect balance of speed and convergence. The wider model (1,967,808 params) learned efficiently under the strict time and step cap without thermal throttling. |

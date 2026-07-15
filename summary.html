@@ -7,26 +7,32 @@
     <style>
         body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; line-height: 1.6; max-width: 900px; margin: 0 auto; padding: 2rem; color: #333; }
         h1, h2, h3 { color: #2c3e50; }
-        .metric { font-size: 1.2rem; font-weight: bold; color: #27ae60; background: #e8f8f5; padding: 10px; border-radius: 5px; display: inline-block;}
-        table { width: 100%; border-collapse: collapse; margin-top: 20px; }
+        .metric { font-size: 1.2rem; font-weight: bold; color: #27ae60; background: #e8f8f5; padding: 15px; border-radius: 5px; margin-bottom: 20px;}
+        table { width: 100%; border-collapse: collapse; margin-top: 20px; margin-bottom: 20px;}
         th, td { border: 1px solid #ddd; padding: 12px; text-align: left; }
         th { background-color: #f8f9fa; }
         .ai-note { background: #f0f4f8; border-left: 4px solid #3182ce; padding: 15px; margin: 20px 0; }
+        code { background: #eee; padding: 2px 5px; border-radius: 3px; font-size: 0.9em; }
     </style>
 </head>
 <body>
 
     <h1>🚀 LLM Speedrun Summary</h1>
-    <p><strong>Goal:</strong> Optimize a 2M parameter GPT model in purely 2,000 steps to achieve the lowest Bits Per Byte (BPB).</p>
-    <div class="metric">Final Model Params: 1,967,808 | Estimated BPB Reduction: ~50% from baseline</div>
+    <p><strong>Goal:</strong> Optimize a 2M parameter GPT model in purely 2,000 steps to achieve the lowest Bits Per Byte (BPB) on a mixed English/Hindi corpus.</p>
+    
+    <div class="metric">
+        Final BPB Score: 1.8138<br>
+        Final Model Params: 1,967,808<br>
+        Tokens Evaluated: 66,161 (Down from 159,225)
+    </div>
 
     <h2>🧠 Architecture & Modifications</h2>
     <ul>
-        <li><strong>Tokenizer Upgrade (The Silver Bullet):</strong> Replaced the 256-vocab byte tokenizer with an on-the-fly custom <strong>BPE Tokenizer (Vocab 768)</strong>. Hindi/Devanagari previously cost 3 tokens per character. BPE compresses this immensely, effectively doubling context lengths and halving required predictions.</li>
-        <li><strong>Weight Tying:</strong> Enabled <code>tie_weights = True</code> for the LM head and token embeddings, saving ~150k parameters.</li>
-        <li><strong>Wider Capacity:</strong> Saved budget allowed increasing <code>n_embd</code> from 160 to 192.</li>
+        <li><strong>Custom BPE Tokenizer:</strong> Replaced the 256-vocab byte tokenizer with a <code>768-vocab BPE</code> trained on the fly. This solved the massive token bloat caused by Devanagari characters, compressing the evaluation tokens by nearly 60% and effectively doubling the context window.</li>
+        <li><strong>Weight Tying & Width:</strong> Enabled <code>tie_weights = True</code> for the LM head and token embeddings. The saved parameters allowed expanding the embedding dimension (<code>n_embd</code>) to 192 while staying securely under the 2M cap.</li>
         <li><strong>Lean Architecture:</strong> Substituted <code>LayerNorm</code> for <code>RMSNorm</code> and removed <code>bias=False</code> in all Linear layers to increase training speed and efficiency.</li>
-        <li><strong>Training Loop:</strong> Transitioned from standard Adam to <code>AdamW</code> (weight_decay=0.1), added gradient clipping (1.0), and utilized a <strong>Cosine Annealing LR Scheduler</strong> with a 200-step linear warmup. Block size was doubled to 256 to provide greater left-context.</li>
+        <li><strong>Training Loop:</strong> Transitioned from standard Adam to <code>AdamW</code> (weight_decay=0.1), added gradient clipping (1.0), and utilized a <strong>Cosine Annealing LR Scheduler</strong> with a 200-step linear warmup.</li>
+        <li><strong>CPU Speed Optimizations:</strong> Injected <code>torch.set_num_threads(os.cpu_count())</code>, removed gradient accumulation, and adjusted LR to <code>2e-3</code> to ensure the run completed well within the 120-minute physical time limit without sacrificing convergence.</li>
     </ul>
 
     <h2>📊 Runlog Evolution</h2>
@@ -34,18 +40,18 @@
         <tr>
             <th>Run</th>
             <th>Core Change</th>
-            <th>Outcome</th>
+            <th>BPB Outcome</th>
         </tr>
-        <tr><td>1</td><td>Baseline test</td><td>Very slow learning, plateaued loss.</td></tr>
-        <tr><td>2</td><td>Cosine Scheduler + AdamW</td><td>Vastly smoothed loss curve and stabilized gradients.</td></tr>
-        <tr><td>3</td><td>RMSNorm + Weight Tying + Width (192)</td><td>Improved representational capacity; stayed under 2M limit.</td></tr>
-        <tr><td>4</td><td>Block Size 256 + Batch Size 12</td><td>Leveraged max token exposure (~6M tokens) under 2k step cap.</td></tr>
-        <tr><td>5</td><td>Custom BPE Tokenizer (768 Vocab)</td><td>Massive BPB plunge; optimal sequence compression.</td></tr>
+        <tr><td>1</td><td>Baseline test</td><td>2.3718</td></tr>
+        <tr><td>2</td><td>Custom BPE (768) + Cosine Scheduler + AdamW</td><td>2.0671</td></tr>
+        <tr><td>3</td><td>RMSNorm + Weight Tying + Width (192) + Grad Accum (4)</td><td>Aborted (Too slow)</td></tr>
+        <tr><td>4</td><td>CPU Optimization + LR Bump (2e-3) + Grad Accum (1)</td><td><strong>1.8138</strong></td></tr>
     </table>
 
     <div class="ai-note">
-        <h3>🤖 AI Agent Strategy Disclosure</h3>
-        <p>This optimization was constructed symmetrically balancing computational overhead and architectural limits. The greatest gains in BPB tasks historically stem from <em>how</em> data is processed (Tokenization) rather than just <em>model depth</em>. The BPE trainer was written from scratch in pure Python to be self-sufficient in evaluation environments without breaching rules. Weight tying provided the mathematical loophole needed to expand embedding dimensions without hitting the 2,000,000 parameter wall.</p>
+        <h3>🤖 AI vs. Human Collaboration Breakdown</h3>
+        <p><strong>AI Contribution:</strong> Provided the core boilerplate for the custom BPE tokenizer, calculated the exact parameter mathematics to hit 1.96M (via weight tying and 192-dim embeddings), and implemented the PyTorch training loop mechanics (Cosine Decay, AdamW, RMSNorm).</p>
+        <p><strong>Human Contribution:</strong> Acted as the crucial runtime orchestrator. Monitored real-time execution speeds, identified the CPU bottleneck caused by gradient accumulation, forced an early abort to save the run budget, and re-calibrated the batch size and learning rate for the final successful 1.8138 BPB execution.</p>
     </div>
 
 </body>
